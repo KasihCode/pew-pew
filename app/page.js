@@ -25,12 +25,29 @@ export default function HomePage() {
   const [isDeploying, setIsDeploying] = useState(false)
   const [deployResult, setDeployResult] = useState(null)
   const [error, setError] = useState('')
+  const [deploymentProgress, setDeploymentProgress] = useState('')
+  const [deployedContracts, setDeployedContracts] = useState({
+    salesperson: null,
+    engineeringManager: null
+  })
 
   // Reset states when contract changes
   useEffect(() => {
     setConstructorArgs({})
     setDeployResult(null)
     setError('')
+  }, [selectedContract])
+
+  // Auto-populate EmployeeStorage constructor args
+  useEffect(() => {
+    if (selectedContract === '3') { // EmployeeStorage
+      setConstructorArgs({
+        _shares: '1000',
+        _name: 'Pat',
+        _salary: '50000',
+        _idNumber: '112358132134'
+      })
+    }
   }, [selectedContract])
 
   // Check if we're on the right network
@@ -97,6 +114,30 @@ export default function HomePage() {
     }
   }
 
+  // Deploy individual contract helper
+  const deployIndividualContract = async (contractData, args = []) => {
+    const bytecode = contractData.bytecode
+    if (typeof bytecode !== 'string' || !bytecode.startsWith('0x')) {
+      throw new Error('Invalid bytecode format')
+    }
+
+    const hash = await walletClient.deployContract({
+      abi: contractData.abi,
+      bytecode,
+      args: args.length > 0 ? args : undefined,
+    })
+
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash,
+      timeout: 120000,
+    })
+
+    return {
+      contractAddress: receipt.contractAddress,
+      transactionHash: hash,
+    }
+  }
+
   // Safety limits for bytecode size (prevent accidental huge uploads)
   const MAX_BYTECODE_LENGTH = 1_000_000 // characters (hex string length)
 
@@ -107,17 +148,65 @@ export default function HomePage() {
       setIsDeploying(true)
       setError('')
       setDeployResult(null)
+      setDeploymentProgress('')
 
-      // Auto-switch to Base Sepolia if needed (do not return early)
+      // Auto-switch to Base Sepolia if needed
       if (!isOnCorrectNetwork) {
         try {
           await switchChain({ chainId: baseSepoliaChain.id })
         } catch (switchErr) {
-          // If user rejected chain switch or switch failed, show message
           throw new Error('Please switch your wallet to Base Sepolia to continue')
         }
       }
 
+      // Special handling for InheritanceSubmission (auto-deploy dependencies)
+      if (selectedContract === '9') { // InheritanceSubmission
+        setDeploymentProgress('Step 1/3: Deploying Salesperson contract...')
+        
+        // Deploy Salesperson
+        const salespersonContract = contractsConfig.find(c => c.id === 7)
+        const salespersonArgs = [BigInt('55555'), BigInt('12345'), BigInt('20')]
+        
+        const salespersonResult = await deployIndividualContract(salespersonContract, salespersonArgs)
+        setDeployedContracts(prev => ({ ...prev, salesperson: salespersonResult.contractAddress }))
+        
+        setDeploymentProgress('Step 2/3: Deploying EngineeringManager contract...')
+        
+        // Deploy EngineeringManager
+        const engineeringManagerContract = contractsConfig.find(c => c.id === 8)
+        const engineeringManagerArgs = [BigInt('54321'), BigInt('11111'), BigInt('200000')]
+        
+        const engineeringManagerResult = await deployIndividualContract(engineeringManagerContract, engineeringManagerArgs)
+        setDeployedContracts(prev => ({ ...prev, engineeringManager: engineeringManagerResult.contractAddress }))
+        
+        setDeploymentProgress('Step 3/3: Deploying InheritanceSubmission contract...')
+        
+        // Deploy InheritanceSubmission with the deployed contract addresses
+        const inheritanceArgs = [salespersonResult.contractAddress, engineeringManagerResult.contractAddress]
+        const inheritanceResult = await deployIndividualContract(selectedContractData, inheritanceArgs)
+        
+        setDeployResult({
+          contractAddress: inheritanceResult.contractAddress,
+          transactionHash: inheritanceResult.transactionHash,
+          explorerUrlTx: `https://sepolia.basescan.org/tx/${inheritanceResult.transactionHash}`,
+          explorerUrlAddress: `https://sepolia.basescan.org/address/${inheritanceResult.contractAddress}`,
+          dependencies: {
+            salesperson: {
+              address: salespersonResult.contractAddress,
+              txHash: salespersonResult.transactionHash
+            },
+            engineeringManager: {
+              address: engineeringManagerResult.contractAddress,
+              txHash: engineeringManagerResult.transactionHash
+            }
+          }
+        })
+        
+        setDeploymentProgress('All contracts deployed successfully!')
+        return
+      }
+
+      // Regular contract deployment
       // Validate constructor arguments if any
       if (constructorInputs.length > 0) {
         validateArgs()
@@ -129,12 +218,12 @@ export default function HomePage() {
         throw new Error('Invalid bytecode format')
       }
       if (bytecode.length > MAX_BYTECODE_LENGTH) {
-        throw new Error('Bytecode too large — aborting for safety')
+        throw new Error('Bytecode too large - aborting for safety')
       }
 
       // Ask user to confirm before sending a contract deploy (safety)
       const userConfirmed = typeof window !== 'undefined' ? window.confirm(
-        `You are about to deploy contract \"${selectedContractData.name}\" from address ${address}. Continue?`
+        `You are about to deploy contract "${selectedContractData.name}" from address ${address}. Continue?`
       ) : true
       if (!userConfirmed) {
         setIsDeploying(false)
@@ -154,20 +243,23 @@ export default function HomePage() {
         return value
       })
 
-      // Ensure walletClient can deploy (some connectors might not expose deployContract directly)
+      // Ensure walletClient can deploy
       if (!walletClient.deployContract || typeof walletClient.deployContract !== 'function') {
         throw new Error('Connected wallet does not support contract deployment via this client')
       }
 
-      // Send deploy transaction (this will prompt the user's wallet to sign)
+      setDeploymentProgress('Deploying contract...')
+
+      // Send deploy transaction
       const hash = await walletClient.deployContract({
         abi: selectedContractData.abi,
         bytecode,
         args: args.length > 0 ? args : undefined,
       })
 
-      // Wait for transaction receipt using publicClient
-      // Increase timeout to 2 minutes to allow for network delays on testnets
+      setDeploymentProgress('Waiting for transaction confirmation...')
+
+      // Wait for transaction receipt
       const receipt = await publicClient.waitForTransactionReceipt({
         hash,
         timeout: 120000,
@@ -179,11 +271,13 @@ export default function HomePage() {
         explorerUrlTx: `https://sepolia.basescan.org/tx/${hash}`,
         explorerUrlAddress: `https://sepolia.basescan.org/address/${receipt.contractAddress}`,
       })
+
+      setDeploymentProgress('Contract deployed successfully!')
     } catch (err) {
       console.error('Deployment error:', err)
-      // err may be an object — try to extract meaningful message
       const message = err?.message || String(err)
       setError(message)
+      setDeploymentProgress('')
     } finally {
       setIsDeploying(false)
     }
@@ -225,6 +319,11 @@ export default function HomePage() {
       />
     )
   }
+
+  // Filter out Salesperson and EngineeringManager from dropdown
+  const filteredContracts = contractsConfig.filter(contract => 
+    contract.id !== 7 && contract.id !== 8 // Remove Salesperson and EngineeringManager
+  )
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -286,7 +385,7 @@ export default function HomePage() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
                 >
                   <option value="" className="text-gray-500">Choose a contract...</option>
-                  {contractsConfig.map((contract) => (
+                  {filteredContracts.map((contract) => (
                     <option key={contract.id} value={contract.id} className="text-gray-900">
                       {contract.name} - {contract.description}
                     </option>
@@ -294,8 +393,19 @@ export default function HomePage() {
                 </select>
               </div>
 
+              {/* Special message for InheritanceSubmission */}
+              {selectedContract === '9' && (
+                <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <h3 className="text-lg font-medium text-yellow-800 mb-2">Auto-Deploy Mode</h3>
+                  <p className="text-yellow-700 text-sm">
+                    This will automatically deploy Salesperson and EngineeringManager contracts first, 
+                    then use their addresses to deploy InheritanceSubmission. No manual input required.
+                  </p>
+                </div>
+              )}
+
               {/* Constructor Arguments */}
-              {selectedContract && constructorInputs.length > 0 && (
+              {selectedContract && selectedContract !== '9' && constructorInputs.length > 0 && (
                 <div className="mb-6 p-4 bg-blue-50 rounded-lg">
                   <h3 className="text-lg font-medium text-gray-800 mb-4">Constructor Parameters</h3>
                   <div className="space-y-4">
@@ -322,12 +432,19 @@ export default function HomePage() {
                     {isDeploying ? (
                       <span className="flex items-center justify-center">
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Deploying...
+                        {selectedContract === '9' ? 'Auto-Deploying Contracts...' : 'Deploying...'}
                       </span>
                     ) : (
-                      'Deploy Contract'
+                      selectedContract === '9' ? 'Auto-Deploy All Contracts' : 'Deploy Contract'
                     )}
                   </button>
+                </div>
+              )}
+
+              {/* Deployment Progress */}
+              {deploymentProgress && (
+                <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-blue-700"><strong>Progress:</strong> {deploymentProgress}</p>
                 </div>
               )}
 
@@ -342,7 +459,9 @@ export default function HomePage() {
               {deployResult && (
                 <div className="p-6 bg-green-50 border border-green-200 rounded-lg">
                   <h3 className="text-lg font-medium text-green-800 mb-4">🎉 Contract Deployed Successfully!</h3>
-                  <div className="space-y-2 text-sm text-green-800">
+                  
+                  {/* Main contract info */}
+                  <div className="space-y-2 text-sm text-green-800 mb-4">
                     <p>
                       <strong>Contract Address:</strong>{' '}
                       <code className="bg-gray-100 px-2 py-1 rounded text-xs text-gray-800">{deployResult.contractAddress}</code>
@@ -351,10 +470,28 @@ export default function HomePage() {
                       <strong>Transaction Hash:</strong>{' '}
                       <code className="bg-gray-100 px-2 py-1 rounded text-xs text-gray-800">{deployResult.transactionHash}</code>
                     </p>
-                    <div className="mt-4 space-x-2">
-                      <a href={deployResult.explorerUrlTx} target="_blank" rel="noopener noreferrer" className="inline-block px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition duration-200">View TX →</a>
-                      <a href={deployResult.explorerUrlAddress} target="_blank" rel="noopener noreferrer" className="inline-block px-4 py-2 bg-gray-100 text-gray-800 rounded-md hover:bg-gray-200 transition duration-200">View Address →</a>
+                  </div>
+
+                  {/* Dependencies info for InheritanceSubmission */}
+                  {deployResult.dependencies && (
+                    <div className="mb-4 p-3 bg-white border border-green-300 rounded">
+                      <h4 className="font-medium text-green-800 mb-2">Deployed Dependencies:</h4>
+                      <div className="text-xs text-green-700 space-y-1">
+                        <p>
+                          <strong>Salesperson:</strong>{' '}
+                          <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">{deployResult.dependencies.salesperson.address}</code>
+                        </p>
+                        <p>
+                          <strong>EngineeringManager:</strong>{' '}
+                          <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">{deployResult.dependencies.engineeringManager.address}</code>
+                        </p>
+                      </div>
                     </div>
+                  )}
+
+                  <div className="mt-4 space-x-2">
+                    <a href={deployResult.explorerUrlTx} target="_blank" rel="noopener noreferrer" className="inline-block px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition duration-200">View TX →</a>
+                    <a href={deployResult.explorerUrlAddress} target="_blank" rel="noopener noreferrer" className="inline-block px-4 py-2 bg-gray-100 text-gray-800 rounded-md hover:bg-gray-200 transition duration-200">View Address →</a>
                   </div>
                 </div>
               )}
