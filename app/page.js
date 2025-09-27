@@ -1,24 +1,16 @@
 'use client'
 
 import { useState } from 'react'
-import {
-  useAccount,
-  useConnect,
-  useDisconnect,
-  useWalletClient,
-  usePublicClient,
-  useSwitchChain,
-} from 'wagmi'
+import { usePrivy, useWallets } from '@privy-io/react-auth'
+import { useWalletClient, usePublicClient } from 'wagmi'
 import contractsConfig from '../contractsConfig.js'
-import { baseSepoliaChain } from '../lib/wagmi'
+import { baseSepolia } from 'viem/chains'
 
 export default function HomePage() {
-  const { address, isConnected, chain } = useAccount()
-  const { connect, connectors } = useConnect()
-  const { disconnect } = useDisconnect()
+  const { ready, authenticated, user, login, logout } = usePrivy()
+  const { wallets } = useWallets()
   const { data: walletClient } = useWalletClient()
   const publicClient = usePublicClient()
-  const { switchChain } = useSwitchChain()
 
   const [isDeploying, setIsDeploying] = useState(false)
   const [deploymentLogs, setDeploymentLogs] = useState([])
@@ -27,8 +19,13 @@ export default function HomePage() {
   const [error, setError] = useState('')
   const [deployedContracts, setDeployedContracts] = useState({})
 
+  // Get current wallet info
+  const embeddedWallet = wallets.find((wallet) => wallet.walletClientType === 'privy')
+  const currentWallet = wallets[0]
+  const address = currentWallet?.address
+
   // Check if we're on the right network
-  const isOnCorrectNetwork = chain?.id === baseSepoliaChain.id
+  const isOnCorrectNetwork = currentWallet?.chainId === `eip155:${baseSepolia.id}`
 
   // Add log entry
   const addLog = (message, type = 'info', contractAddress = null) => {
@@ -39,35 +36,6 @@ export default function HomePage() {
       type,
       contractAddress
     }])
-  }
-
-  // Deploy individual contract helper (silent - no logs)
-  const deploySilentContract = async (contractData, args = [], contractName = '') => {
-    try {
-      const bytecode = contractData.bytecode
-      if (typeof bytecode !== 'string' || !bytecode.startsWith('0x')) {
-        throw new Error(`Invalid bytecode format for ${contractName}`)
-      }
-
-      const hash = await walletClient.deployContract({
-        abi: contractData.abi,
-        bytecode,
-        args: args.length > 0 ? args : undefined,
-      })
-
-      const receipt = await publicClient.waitForTransactionReceipt({
-        hash,
-        timeout: 120000,
-      })
-
-      return {
-        contractAddress: receipt.contractAddress,
-        transactionHash: hash,
-      }
-    } catch (err) {
-      addLog(`Failed to deploy ${contractName}: ${err.message}`, 'error')
-      throw err
-    }
   }
 
   // Deploy individual contract helper
@@ -105,6 +73,18 @@ export default function HomePage() {
     }
   }
 
+  // Switch to Base Sepolia network
+  const switchToBaseSepolia = async () => {
+    try {
+      if (currentWallet && currentWallet.switchChain) {
+        await currentWallet.switchChain(baseSepolia.id)
+        addLog('Successfully switched to Base Sepolia network', 'success')
+      }
+    } catch (err) {
+      throw new Error('Please switch your wallet to Base Sepolia to continue')
+    }
+  }
+
   // Deploy all contracts
   const deployAllContracts = async () => {
     if (!walletClient || !publicClient) return
@@ -114,16 +94,12 @@ export default function HomePage() {
       setError('')
       setDeploymentLogs([])
       setCurrentStep(0)
-      setTotalSteps(15) // Total contracts to deploy
+      setTotalSteps(15)
       setDeployedContracts({})
 
       // Auto-switch to Base Sepolia if needed
       if (!isOnCorrectNetwork) {
-        try {
-          await switchChain({ chainId: baseSepoliaChain.id })
-        } catch (switchErr) {
-          throw new Error('Please switch your wallet to Base Sepolia to continue')
-        }
+        await switchToBaseSepolia()
       }
 
       addLog('Starting deployment of all smart contracts...', 'info')
@@ -132,13 +108,14 @@ export default function HomePage() {
       const deployedAddresses = {}
       let stepCount = 0
 
+      // Deploy all contracts with the same logic as before
       // 1. BasicMath
       stepCount++
       setCurrentStep(stepCount)
       const basicMathContract = contractsConfig.find(c => c.id === 1)
       const basicMathResult = await deployIndividualContract(basicMathContract, [], '1. BasicMath')
       deployedAddresses.basicMath = basicMathResult.contractAddress
-      addLog('', 'info') // Empty line for spacing
+      addLog('', 'info')
 
       // 2. ControlStructures
       stepCount++
@@ -153,10 +130,10 @@ export default function HomePage() {
       setCurrentStep(stepCount)
       const employeeStorageContract = contractsConfig.find(c => c.id === 3)
       const employeeStorageArgs = [
-        BigInt('1000'),           // _shares
-        'Pat',                    // _name  
-        BigInt('50000'),          // _salary
-        BigInt('112358132134')    // _idNumber
+        BigInt('1000'),
+        'Pat',
+        BigInt('50000'),
+        BigInt('112358132134')
       ]
       const employeeStorageResult = await deployIndividualContract(employeeStorageContract, employeeStorageArgs, '3. EmployeeStorage')
       deployedAddresses.employeeStorage = employeeStorageResult.contractAddress
@@ -186,35 +163,31 @@ export default function HomePage() {
       deployedAddresses.garageManager = garageManagerResult.contractAddress
       addLog('', 'info')
 
-      // 7. Salesperson (Silent deployment)
+      // 7. Salesperson
       stepCount++
       setCurrentStep(stepCount)
-      addLog('Preparing dependency contracts...', 'info')
       const salespersonContract = contractsConfig.find(c => c.id === 7)
       const salespersonArgs = [BigInt('55555'), BigInt('12345'), BigInt('20')]
-      const salespersonResult = await deploySilentContract(salespersonContract, salespersonArgs, 'Salesperson')
+      const salespersonResult = await deployIndividualContract(salespersonContract, salespersonArgs, '7. Salesperson')
       deployedAddresses.salesperson = salespersonResult.contractAddress
+      addLog('', 'info')
 
-      // 8. EngineeringManager (Silent deployment)
+      // 8. EngineeringManager
       stepCount++
       setCurrentStep(stepCount)
       const engineeringManagerContract = contractsConfig.find(c => c.id === 8)
       const engineeringManagerArgs = [BigInt('54321'), BigInt('11111'), BigInt('200000')]
-      const engineeringManagerResult = await deploySilentContract(engineeringManagerContract, engineeringManagerArgs, 'EngineeringManager')
+      const engineeringManagerResult = await deployIndividualContract(engineeringManagerContract, engineeringManagerArgs, '8. EngineeringManager')
       deployedAddresses.engineeringManager = engineeringManagerResult.contractAddress
+      addLog('', 'info')
 
-      // 9. InheritanceSubmission (Show all three together)
+      // 9. InheritanceSubmission
       stepCount++
       setCurrentStep(stepCount)
       const inheritanceSubmissionContract = contractsConfig.find(c => c.id === 9)
       const inheritanceArgs = [deployedAddresses.salesperson, deployedAddresses.engineeringManager]
       const inheritanceSubmissionResult = await deployIndividualContract(inheritanceSubmissionContract, inheritanceArgs, '9. InheritanceSubmission')
       deployedAddresses.inheritanceSubmission = inheritanceSubmissionResult.contractAddress
-      
-      // Show dependency contracts info after successful InheritanceSubmission
-      addLog('├── 7. Salesperson deployed successfully!', 'success', deployedAddresses.salesperson)
-      addLog('├── 8. EngineeringManager deployed successfully!', 'success', deployedAddresses.engineeringManager)
-      addLog('└── Dependencies linked to InheritanceSubmission', 'info')
       addLog('', 'info')
 
       // 10. ImportsExercise
@@ -289,41 +262,50 @@ export default function HomePage() {
         <div className="bg-white rounded-lg shadow-lg p-6">
           <h1 className="text-3xl font-bold text-gray-800 mb-8 text-center">Smart Contract Mass Deployer</h1>
           <p className="text-gray-600 text-center mb-8">
-            Deploy all 15 smart contracts to Base Sepolia Testnet (Chain ID: {baseSepoliaChain.id}) with one click
+            Deploy all 15 smart contracts to Base Sepolia Testnet (Chain ID: {baseSepolia.id}) with one click
           </p>
 
-          {/* Wallet Connection */}
+          {/* Wallet Connection Section */}
           <div className="mb-8 p-4 bg-gray-50 rounded-lg">
-            {!isConnected ? (
+            {!ready ? (
               <div className="text-center">
-                <p className="mb-4 text-gray-700">Connect your wallet to get started</p>
-                <div className="space-x-4">
-                  {connectors.map((connector) => (
-                    <button
-                      key={connector.uid}
-                      onClick={() => connect({ connector })}
-                      disabled={connector.connecting}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 transition duration-200"
-                    >
-                      {connector.name}
-                      {connector.connecting && ' (connecting)'}
-                    </button>
-                  ))}
-                </div>
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="mt-2 text-gray-600">Loading Privy...</p>
+              </div>
+            ) : !authenticated ? (
+              <div className="text-center">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">Connect Your Wallet</h3>
+                <p className="mb-4 text-gray-600">
+                  Connect using email, social login, or your existing wallet to get started
+                </p>
+                <button
+                  onClick={login}
+                  className="px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition duration-200 font-medium"
+                >
+                  Connect Wallet with Privy
+                </button>
               </div>
             ) : (
               <div className="text-center">
-                <p className="mb-2 text-gray-700">
-                  Connected: <span className="font-mono text-sm">{address}</span>
-                </p>
-                <p className="mb-4 text-gray-600">
-                  Network: {chain?.name} ({chain?.id})
-                  {!isOnCorrectNetwork && (
-                    <span className="text-red-600 ml-2">⚠️ Please switch to Base Sepolia</span>
+                <div className="mb-4">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-2">Wallet Connected</h3>
+                  <p className="text-gray-700">
+                    User: <span className="font-mono text-sm">{user?.email?.address || 'Anonymous'}</span>
+                  </p>
+                  {address && (
+                    <p className="text-gray-700 mt-1">
+                      Address: <span className="font-mono text-sm">{address}</span>
+                    </p>
                   )}
-                </p>
+                  <p className="text-gray-600 mt-1">
+                    Network: {isOnCorrectNetwork ? 'Base Sepolia ✅' : 'Wrong Network ⚠️'}
+                    {!isOnCorrectNetwork && (
+                      <span className="text-red-600 ml-2">Please switch to Base Sepolia</span>
+                    )}
+                  </p>
+                </div>
                 <button
-                  onClick={() => disconnect()}
+                  onClick={logout}
                   className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition duration-200"
                 >
                   Disconnect
@@ -332,14 +314,14 @@ export default function HomePage() {
             )}
           </div>
 
-          {/* Deploy All Button */}
-          {isConnected && (
+          {/* Deploy Section */}
+          {authenticated && (
             <>
               <div className="mb-8 text-center">
                 <div className="mb-4">
                   <h2 className="text-xl font-semibold text-gray-800 mb-2">Deploy All Smart Contracts</h2>
                   <p className="text-gray-600 text-sm mb-4">
-                    This will deploy all 15 smart contracts in sequence. You'll need to approve each transaction in your wallet.
+                    This will deploy all 15 smart contracts in sequence. You'll need to approve each transaction.
                   </p>
                   {currentStep > 0 && (
                     <div className="mb-4">
@@ -360,7 +342,7 @@ export default function HomePage() {
 
                 <button
                   onClick={deployAllContracts}
-                  disabled={isDeploying}
+                  disabled={isDeploying || !walletClient}
                   className="px-8 py-4 bg-gradient-to-r from-green-600 to-blue-600 text-white font-bold text-lg rounded-lg hover:from-green-700 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition duration-200 shadow-lg"
                 >
                   {isDeploying ? (
@@ -372,6 +354,44 @@ export default function HomePage() {
                     'Deploy All Smart Contracts'
                   )}
                 </button>
+
+                {/* Donation Section */}
+                <div className="mt-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg">
+                  <div className="text-center">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-3">Support Development</h3>
+                    <p className="text-gray-600 text-sm mb-3">
+                      If this tool helped you, consider supporting development
+                    </p>
+                    <div className="flex items-center justify-center space-x-2">
+                      <span className="text-gray-700 font-medium">Donate:</span>
+                      <div className="flex items-center bg-white border rounded-lg p-2 shadow-sm">
+                        <span className="font-mono text-sm text-gray-800 select-all">
+                          0x56dcd7fdbbf1fbf34bde48d5e515401f39d8b227
+                        </span>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText('0x56dcd7fdbbf1fbf34bde48d5e515401f39d8b227')
+                            // Show temporary feedback
+                            const btn = event.target
+                            const originalText = btn.textContent
+                            btn.textContent = 'Copied!'
+                            btn.className = btn.className.replace('text-gray-500', 'text-green-500')
+                            setTimeout(() => {
+                              btn.textContent = originalText
+                              btn.className = btn.className.replace('text-green-500', 'text-gray-500')
+                            }, 2000)
+                          }}
+                          className="ml-2 p-1 text-gray-500 hover:text-gray-700 transition-colors duration-200"
+                          title="Copy address"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Error Display */}
@@ -443,20 +463,10 @@ export default function HomePage() {
         {/* Credit Section */}
         <div className="text-center mt-6">
           <p className="text-sm text-gray-500">
-            Credit to: <a href="https://kasih-7.blogspot.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">https://kasih-7.blogspot.com/</a>
+            Secured by Privy & WalletConnect | Credit to: <a href="https://kasih-7.blogspot.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">kasih-7.blogspot.com</a>
           </p>
         </div>
       </div>
-
-      {/* Add CSS for loading spinner */}
-      <style jsx>{`
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-        .animate-spin {
-          animation: spin 1s linear infinite;
-        }
-      `}</style>
     </div>
   )
 }
