@@ -41,6 +41,35 @@ export default function HomePage() {
     }])
   }
 
+  // Deploy individual contract helper (silent - no logs)
+  const deploySilentContract = async (contractData, args = [], contractName = '') => {
+    try {
+      const bytecode = contractData.bytecode
+      if (typeof bytecode !== 'string' || !bytecode.startsWith('0x')) {
+        throw new Error(`Invalid bytecode format for ${contractName}`)
+      }
+
+      const hash = await walletClient.deployContract({
+        abi: contractData.abi,
+        bytecode,
+        args: args.length > 0 ? args : undefined,
+      })
+
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash,
+        timeout: 120000,
+      })
+
+      return {
+        contractAddress: receipt.contractAddress,
+        transactionHash: hash,
+      }
+    } catch (err) {
+      addLog(`Failed to deploy ${contractName}: ${err.message}`, 'error')
+      throw err
+    }
+  }
+
   // Deploy individual contract helper
   const deployIndividualContract = async (contractData, args = [], contractName = '') => {
     try {
@@ -157,31 +186,35 @@ export default function HomePage() {
       deployedAddresses.garageManager = garageManagerResult.contractAddress
       addLog('', 'info')
 
-      // 7. Salesperson
+      // 7. Salesperson (Silent deployment)
       stepCount++
       setCurrentStep(stepCount)
+      addLog('Preparing dependency contracts...', 'info')
       const salespersonContract = contractsConfig.find(c => c.id === 7)
       const salespersonArgs = [BigInt('55555'), BigInt('12345'), BigInt('20')]
-      const salespersonResult = await deployIndividualContract(salespersonContract, salespersonArgs, '7. Salesperson')
+      const salespersonResult = await deploySilentContract(salespersonContract, salespersonArgs, 'Salesperson')
       deployedAddresses.salesperson = salespersonResult.contractAddress
-      addLog('', 'info')
 
-      // 8. EngineeringManager
+      // 8. EngineeringManager (Silent deployment)
       stepCount++
       setCurrentStep(stepCount)
       const engineeringManagerContract = contractsConfig.find(c => c.id === 8)
       const engineeringManagerArgs = [BigInt('54321'), BigInt('11111'), BigInt('200000')]
-      const engineeringManagerResult = await deployIndividualContract(engineeringManagerContract, engineeringManagerArgs, '8. EngineeringManager')
+      const engineeringManagerResult = await deploySilentContract(engineeringManagerContract, engineeringManagerArgs, 'EngineeringManager')
       deployedAddresses.engineeringManager = engineeringManagerResult.contractAddress
-      addLog('', 'info')
 
-      // 9. InheritanceSubmission
+      // 9. InheritanceSubmission (Show all three together)
       stepCount++
       setCurrentStep(stepCount)
       const inheritanceSubmissionContract = contractsConfig.find(c => c.id === 9)
       const inheritanceArgs = [deployedAddresses.salesperson, deployedAddresses.engineeringManager]
       const inheritanceSubmissionResult = await deployIndividualContract(inheritanceSubmissionContract, inheritanceArgs, '9. InheritanceSubmission')
       deployedAddresses.inheritanceSubmission = inheritanceSubmissionResult.contractAddress
+      
+      // Show dependency contracts info after successful InheritanceSubmission
+      addLog('├── 7. Salesperson deployed successfully!', 'success', deployedAddresses.salesperson)
+      addLog('├── 8. EngineeringManager deployed successfully!', 'success', deployedAddresses.engineeringManager)
+      addLog('└── Dependencies linked to InheritanceSubmission', 'info')
       addLog('', 'info')
 
       // 10. ImportsExercise
