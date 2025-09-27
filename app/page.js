@@ -356,16 +356,16 @@ export default function HomePage() {
                 </button>
 
                 {/* Donation Section */}
-                <div className="mt-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg">
+                <div className="mt-6 p-6 bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-300 rounded-lg shadow-md">
                   <div className="text-center">
-                    <h3 className="text-lg font-semibold text-gray-800 mb-3">Support Development</h3>
-                    <p className="text-gray-600 text-sm mb-3">
-                      If this tool helped you, consider supporting development
+                    <h3 className="text-xl font-bold text-gray-800 mb-2">💝 Support Development</h3>
+                    <p className="text-gray-700 mb-4">
+                      If this tool helped you complete Base Learn requirements, please consider supporting development
                     </p>
-                    <div className="flex items-center justify-center space-x-2">
-                      <span className="text-gray-700 font-medium">Donate:</span>
-                      <div className="flex items-center bg-white border rounded-lg p-2 shadow-sm">
-                        <span className="font-mono text-sm text-gray-800 select-all">
+                    <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+                      <p className="text-sm text-gray-600 mb-2 font-medium">Donate to:</p>
+                      <div className="flex items-center justify-center space-x-2 bg-gray-50 p-3 rounded-md">
+                        <span className="font-mono text-sm text-gray-800 select-all break-all">
                           0x56dcd7fdbbf1fbf34bde48d5e515401f39d8b227
                         </span>
                         <button
@@ -373,22 +373,23 @@ export default function HomePage() {
                             navigator.clipboard.writeText('0x56dcd7fdbbf1fbf34bde48d5e515401f39d8b227')
                             // Show temporary feedback
                             const btn = event.target
-                            const originalText = btn.textContent
-                            btn.textContent = 'Copied!'
+                            const originalText = btn.innerHTML
+                            btn.innerHTML = '✅ Copied!'
                             btn.className = btn.className.replace('text-gray-500', 'text-green-500')
                             setTimeout(() => {
-                              btn.textContent = originalText
+                              btn.innerHTML = originalText
                               btn.className = btn.className.replace('text-green-500', 'text-gray-500')
                             }, 2000)
                           }}
-                          className="ml-2 p-1 text-gray-500 hover:text-gray-700 transition-colors duration-200"
-                          title="Copy address"
+                          className="ml-2 p-1 text-gray-500 hover:text-gray-700 transition-colors duration-200 text-xs font-medium"
+                          title="Copy address to clipboard"
                         >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                          </svg>
+                          📋 Copy
                         </button>
                       </div>
+                      <p className="text-xs text-gray-500 mt-2">
+                        Ethereum, Base, or any EVM compatible network
+                      </p>
                     </div>
                   </div>
                 </div>
