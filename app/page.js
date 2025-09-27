@@ -38,17 +38,17 @@ export default function HomePage() {
     setError('')
   }, [selectedContract])
 
-  // Auto-populate EmployeeStorage constructor args
-  useEffect(() => {
-    if (selectedContract === '3') { // EmployeeStorage
-      setConstructorArgs({
-        _shares: '1000',
-        _name: 'Pat',
-        _salary: '50000',
-        _idNumber: '112358132134'
-      })
-    }
-  }, [selectedContract])
+  // Auto-populate EmployeeStorage constructor args (removed - not needed anymore)
+  // useEffect(() => {
+  //   if (selectedContract === '3') { // EmployeeStorage
+  //     setConstructorArgs({
+  //       _shares: '1000',
+  //       _name: 'Pat',
+  //       _salary: '50000',
+  //       _idNumber: '112358132134'
+  //     })
+  //   }
+  // }, [selectedContract])
 
   // Check if we're on the right network
   const isOnCorrectNetwork = chain?.id === baseSepoliaChain.id
@@ -207,6 +207,30 @@ export default function HomePage() {
       }
 
       // Regular contract deployment
+      // Handle EmployeeStorage with predefined args
+      if (selectedContract === '3') { // EmployeeStorage
+        setDeploymentProgress('Deploying EmployeeStorage with predefined parameters...')
+        
+        const employeeStorageArgs = [
+          BigInt('1000'),           // _shares
+          'Pat',                    // _name  
+          BigInt('50000'),          // _salary
+          BigInt('112358132134')    // _idNumber
+        ]
+        
+        const result = await deployIndividualContract(selectedContractData, employeeStorageArgs)
+        
+        setDeployResult({
+          contractAddress: result.contractAddress,
+          transactionHash: result.transactionHash,
+          explorerUrlTx: `https://sepolia.basescan.org/tx/${result.transactionHash}`,
+          explorerUrlAddress: `https://sepolia.basescan.org/address/${result.contractAddress}`,
+        })
+        
+        setDeploymentProgress('Contract deployed successfully!')
+        return
+      }
+
       // Validate constructor arguments if any
       if (constructorInputs.length > 0) {
         validateArgs()
@@ -405,7 +429,7 @@ export default function HomePage() {
               )}
 
               {/* Constructor Arguments */}
-              {selectedContract && selectedContract !== '9' && constructorInputs.length > 0 && (
+              {selectedContract && selectedContract !== '9' && selectedContract !== '3' && constructorInputs.length > 0 && (
                 <div className="mb-6 p-4 bg-blue-50 rounded-lg">
                   <h3 className="text-lg font-medium text-gray-800 mb-4">Constructor Parameters</h3>
                   <div className="space-y-4">
